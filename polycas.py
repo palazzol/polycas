@@ -1,9 +1,11 @@
 
-import argparse
-import serial
-import time
-import sys
+from argparse import ArgumentParser
+from time import sleep
+from sys import exit
 from pathlib import Path
+from datetime import timedelta
+
+from serial import Serial
 
 SYNC = b'\xe6'
 SOH  = b'\x01'
@@ -17,7 +19,8 @@ class CassetteProgram:
     def __init__(self):
         # header consists of sync characters followed by Start of header
         self.header = SYNC * 16 + SOH
-        self.bytes = b''
+        self.sections = []
+        self.size = 0
 
     def __createChecksum(self, s):
         if s == b'':
@@ -43,12 +46,13 @@ class CassetteProgram:
             b = b''
         else:
             b = data
-        self.bytes += self.header + a + self.__createChecksum(a) + b + self.__createChecksum(b)
+        self.sections.append(self.header + a + self.__createChecksum(a) + b + self.__createChecksum(b))
+        self.size += len(self.sections[-1])
              
     def setName(self, name):
         if len(name) > 8:
             print("Error: program name field greater than 8 characters")
-            sys.exit(-1)
+            exit(-1)
         # pad the name field with spaces up to 8 chars
         if len(name) < 8:
             name = name + (b' ' * (8-len(name)))
@@ -87,35 +91,64 @@ class CassetteProgram:
     def load(self, infile):
         print('Loading cas file...')
         with open(infile, 'rb') as f:
-            self.bytes = f.read()
+            self.size = 0
+            self.sections = []
+            index = 0
+            while True:
+                section = b''
+                c = f.read(1)
+                if c == b'':
+                    break
+                while c == SYNC:
+                    section += c
+                    c = f.read(1)
+                section += c    
+                c = f.read(16)
+                section += c
+                s = c[10]
+                if s == 0:
+                    length = 256
+                else:
+                    length = s
+                #print(index, length)
+                c = f.read(length)
+                section += c
+                index += 1
+                self.sections.append(section)
+                self.size += len(self.sections[-1])
 
     def save(self, outfile):
         print('Saving cas file...')
         with open(outfile, 'wb') as f:
-            f.write(self.bytes)
+            for section in self.sections:
+                f.write(section)
 
     def saveAsWavs(self):
         print('Saving wav files...')
 
     def stream(self, port):
-        print('Streaming to serial port...')
-        ser = serial.Serial(port, 300, stopbits=2, timeout=1, write_timeout=1)
+        print('Sending to serial port...')
+        ser = Serial(port, 300, stopbits=2, timeout=1, write_timeout=1)
         #print(ser.get_settings())
-        self.send(ser, self.bytes)
+        sent_size = 0
+        for section in self.sections:
+            sent_size += len(section)
+            self.send(ser, section)
+            time_remaining = timedelta(seconds = int((self.size - sent_size) * 11 / 300))
+            print(f'{sent_size/self.size*100:3.0f}% complete - time remaining: {str(time_remaining)[2:]}')
         print("Done")
-        while 1:
-            sleep(1)
+        sleep(3)
 
     def send(self, ser, msg):
         for i in range(0,len(msg)):
             ser.write(msg[i:i+1])
-            time.sleep(11/300)
+            sleep(11.0/300)
 
 def main():
     # Parse Arguments
     def auto_int(x): # function to handle ints and int literals
         return int(x,0)
-    parser = argparse.ArgumentParser(description = 'polycas - Poly-88 Cassette Utility')
+    parser = ArgumentParser(description = 'polycas - Poly-88 Cassette Utility')
     parser.add_argument('-i','--infile',help='Input File',required=True)
     parser.add_argument('-o','--outfile',help='Output File',required=False)
     parser.add_argument('-n','--name',default=b' ',help='Name',required=False)
@@ -130,7 +163,7 @@ def main():
     if input_file_path.suffix != '.cas':
         if args.addr is None:
             parser.print_help()
-            sys.exit(-1)
+            exit(-1)
         casobj = CassetteProgram()
         casobj.loadFromBin(args.infile, args.addr, args.exec, args.name)
         if args.outfile is not None:
@@ -151,7 +184,7 @@ def oldmain():
     argv = sys.argv
     if len(argv) != 4 and len(argv) != 5:
         print('Usage: polyload <filename> <startexecaddr> <comport> [recordname]')
-        sys.exit(-1)
+        exit(-1)
     filename = argv[1]
     startaddr = int(argv[2],0)
     comport = argv[3]
@@ -182,7 +215,7 @@ def oldmain():
     Write(ser,msg)
     print("Done")
     while True:
-        time.sleep(1)
+        sleep(1)
 '''
 
 if __name__ == '__main__':
