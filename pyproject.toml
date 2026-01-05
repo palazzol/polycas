@@ -5,5 +5,6 @@ description = "Poly-88 Cassette Utility"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "numpy>=2.4.0",
     "pyserial>=3.5",
 ]

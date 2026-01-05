@@ -4,6 +4,9 @@ from time import sleep
 from sys import exit
 from pathlib import Path
 from datetime import timedelta
+from numpy import arange, sin, pi, int16
+import wave
+import struct
 
 from serial import Serial
 
@@ -123,8 +126,31 @@ class CassetteProgram:
             for section in self.sections:
                 f.write(section)
 
-    def saveAsWavs(self):
+    def saveAsWavs(self, file_path):
+        samplerate = 48000.0
+        t = arange(0,160.0)
+        a = 30000.0
+        f0 = a*sin(t*2*pi/160*4)
+        f1 = a*sin(t*2*pi/160*8)
+        f0 = f0.astype(int)
+        f1 = f1.astype(int)
+        buffers = [ struct.pack('<160h',*(f0)),
+                    struct.pack('<160h',*(f1)) ]
         print('Saving wav files...')
+        with wave.open(str(file_path.with_stem(file_path.stem + '_byte').with_suffix('.wav')),'wb') as wf:
+            wf.setnchannels(1)   # Mono audio
+            wf.setsampwidth(2)   # 2 bytes per sample (16-bit)
+            wf.setframerate(samplerate)
+            for section in self.sections:
+                for c in section:
+                    wf.writeframes(buffers[0])
+                    for bit in range(0,8):
+                        b = (c >> bit) & 0x01
+                        wf.writeframes(buffers[b])
+                    wf.writeframes(buffers[1])
+                    wf.writeframes(buffers[1])
+        with open(file_path.with_stem(file_path.stem + '_poly').with_suffix('.wav'),'wb') as f:
+            pass        
 
     def stream(self, port):
         print('Sending to serial port...')
@@ -168,13 +194,17 @@ def main():
         casobj.loadFromBin(args.infile, args.addr, args.exec, args.name)
         if args.outfile is not None:
             casobj.save(args.outfile)
+            wavbase = Path(args.outfile)
+        else:
+            wavbase = Path(args.infile)
     else:
         casobj = CassetteProgram()
         casobj.load(args.infile)
+        wavbase = Path(args.infile)
         
     # save to wav files
     if args.wav:
-        casobj.saveAsWavs()
+        casobj.saveAsWavs(wavbase)
     # stream file to serial if desired
     if args.port:
         casobj.stream(args.port)
