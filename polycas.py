@@ -53,6 +53,7 @@ class CassetteProgram:
         self.size += len(self.sections[-1])
              
     def setName(self, name):
+        name = name.encode()
         if len(name) > 8:
             print("Error: program name field greater than 8 characters")
             exit(-1)
